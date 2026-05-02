@@ -36,15 +36,15 @@ A technical walkthrough of exploiting **CVE-2021-44228 (Log4Shell)** in a UniFi 
  ![NMAP scan result](img/Nmap_scan.png)
 The scan results revealed several open ports:
 
-| PORT | STATE | SERVICE | VERSION |
-| :--- | :--- |
-| **22/tcp** | open | ssh OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0) |
-| **6789/tcp** | open | unifi Ubiquiti UniFi Controller |
-| **8080/tcp** | open | http nginx 1.18.0 (Ubuntu) |
-| **8443/tcp** | open | ssl/http nginx 1.18.0 (Ubuntu) |
-| **8880/tcp** | open | http nginx 1.18.0 (Ubuntu) |
+| Port | State | Service | Version |
+| :--- | :--- | :--- | :--- |
+| **22/tcp** | open | ssh | OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 |
+| **6789/tcp** | open | unifi | Ubiquiti UniFi Controller |
+| **8080/tcp** | open | http | nginx 1.18.0 (Ubuntu) |
+| **8443/tcp** | open | ssl/http | nginx 1.18.0 (Ubuntu) |
+| **8880/tcp** | open | http | nginx 1.18.0 (Ubuntu) |
 
- ### Web Enumeration - 
+ ### Web Enumeration 
  Navigating to `http://10.10.25.200:8080` automatically redirected to a login panel at `https://10.10.25.200:8443/manage`. 
  
  ![UniFi web UI login page](img/Unifi_Login.png)
